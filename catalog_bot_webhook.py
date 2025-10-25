@@ -1,28 +1,30 @@
 import os
-import asyncio
-from flask import Flask, request
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # --- Конфигурация
 TOKEN = "8272770257:AAHCYt5GKjdaweaTI3frG-tWzItJK8OGSIs"
-PUBLIC_URL = "https://oberpat.onrender.com"
-TELEGRAM_WEBHOOK_URL = f"{PUBLIC_URL}/{TOKEN}"
-
-bot = Bot(token=TOKEN)
-app_flask = Flask(__name__)
+PUBLIC_URL = "https://oberpat.onrender.com"  # Твой Render-домен
+WEBHOOK_PATH = f"/{TOKEN}"
+WEBHOOK_URL = f"{PUBLIC_URL}{WEBHOOK_PATH}"
 
 # --- Каталог
 catalog = {
     "Игры": [
         {"name": "Игра Уличный гонщик", "description": "Захватывающее приключение с отличной графикой и сюжетом.", "photo": "game1.jpeg", "price": 100},
-        {"name": "Игра Mortal Kombat (PS5)", "description": "Лучшая игра жанре драк", "photo": "game3.jpeg", "price": 250},
+        {"name": "Игра Mortal Kombat (PS5)", "description": "Лучшая игра в жанре драк", "photo": "game3.jpeg", "price": 250},
         {"name": "Игра Ведьмак 3. Дикая охота (PS5)", "description": "Полное издание для PS5, русская озвучка", "photo": "game4.jpeg", "price": 250},
         {"name": "Игра Dishonored 2", "description": "Сложная стратегия, где решает каждый ход.", "photo": "game2.jpeg", "price": 200},
     ]
 }
 
+# --- Хранилище данных
 carts = {}
+orders = {}
+order_info = {}
+global_order_number = 0
+
+# --- Главное меню
 main_menu = ReplyKeyboardMarkup(
     [
         [KeyboardButton("Каталог игр")],
@@ -30,14 +32,16 @@ main_menu = ReplyKeyboardMarkup(
         [KeyboardButton("Мои заказы")],
         [KeyboardButton("❓ Часто задаваемые вопросы")]
     ],
-    resize_keyboard=True
+    resize_keyboard=True,
+    one_time_keyboard=False
 )
 
-# --- Обработчики
+# --- Хэндлеры
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Выберите раздел:", reply_markup=main_menu)
 
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global global_order_number
     text = update.message.text
     user_id = update.message.from_user.id
 
@@ -46,6 +50,7 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton(f"{item['name']} — {item['price']}р", callback_data=f"item_{item['name']}")] for item in catalog[category]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(f"Каталог {category}:", reply_markup=reply_markup)
+
     elif text == "Просмотр корзины":
         cart_items = carts.get(user_id, [])
         if not cart_items:
@@ -64,8 +69,19 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         text_cart += f"\n💰 Итого: {total}р"
         await update.message.reply_text(text_cart, reply_markup=reply_markup)
+
+    elif text == "Оформить заказ":
+        cart_items = carts.get(user_id, [])
+        if not cart_items:
+            await update.message.reply_text("Ваша корзина пуста.", reply_markup=main_menu)
+            return
+        await update.message.reply_text(
+            "Введите данные для оформления заказа в одном сообщении:\nтелефон: <телефон>\nимя: <имя>\nадрес: <адрес>",
+            reply_markup=main_menu
+        )
+
     else:
-        await update.message.reply_text("Выберите пункт из меню 👇", reply_markup=main_menu)
+        await update.message.reply_text("Пожалуйста, выберите раздел из меню ниже 👇", reply_markup=main_menu)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -84,46 +100,44 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("Оформить заказ", callback_data="checkout")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            with open(item["photo"], "rb") as f:
-                await query.message.reply_photo(
-                    photo=f,
-                    caption=f"🎮 {item['name']} — {item['price']}р\n{item['description']}",
-                    reply_markup=reply_markup
-                )
+            try:
+                with open(item["photo"], "rb") as f:
+                    await query.message.reply_photo(photo=f, caption=f"🎮 {item['name']} — {item['price']}р\n{item['description']}", reply_markup=reply_markup)
+            except FileNotFoundError:
+                await query.message.reply_text(f"🎮 {item['name']} — {item['price']}р\n{item['description']}", reply_markup=reply_markup)
+
     elif data.startswith("add_"):
         item_name = data.split("_", 1)[1]
         carts.setdefault(user_id, []).append(item_name)
         await query.message.reply_text(f"✅ {item_name} добавлен в корзину!")
 
-# --- Telegram Application
-app_telegram = Application.builder().token(TOKEN).build()
-app_telegram.add_handler(CommandHandler("start", start))
-app_telegram.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
-app_telegram.add_handler(CallbackQueryHandler(button_handler))
+    elif data == "back_to_catalog":
+        await handle_menu(update, context)
 
-# --- Flask маршруты
-@app_flask.route("/")
-def index():
-    return "Bot is running!"
+# --- Запуск через встроенный webhook-сервер
+async def main():
+    app = ApplicationBuilder().token(TOKEN).build()
 
-@app_flask.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update_data = request.get_json(force=True)
-    update = Update.de_json(update_data, bot)
-    asyncio.create_task(app_telegram.process_update(update))  # ✅ <-- вот ключевая замена!
-    return "OK", 200
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-# --- Устанавливаем вебхук при запуске
-async def set_webhook():
-    await bot.set_webhook(TELEGRAM_WEBHOOK_URL)
-asyncio.run(set_webhook())
+    # Настройка webhook
+    await app.bot.set_webhook(url=WEBHOOK_URL)
+    print(f"✅ Webhook установлен: {WEBHOOK_URL}")
 
-# --- Запускаем Flask
+    # Render передаёт порт через переменную среды PORT
+    port_str = os.environ.get("PORT")
+    port = int(port_str) if port_str and port_str.isdigit() else 5000
+
+    # Запуск встроенного сервера (без Flask)
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=WEBHOOK_PATH,
+        webhook_url=WEBHOOK_URL
+    )
+
 if __name__ == "__main__":
-port_str = os.environ.get("PORT")
-try:
-    port = int(port_str)
-except (TypeError, ValueError):
-    port = 5000  # значение по умолчанию
-app_flask.run(host="0.0.0.0", port=port)
-
+    import asyncio
+    asyncio.run(main())
