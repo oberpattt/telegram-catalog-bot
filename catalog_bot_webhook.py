@@ -2,16 +2,15 @@ import os
 import asyncio
 from flask import Flask, request
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # --- Конфигурация
 TOKEN = "8272770257:AAHCYt5GKjdaweaTI3frG-tWzItJK8OGSIs"
+PUBLIC_URL = "https://oberpat.onrender.com"
+TELEGRAM_WEBHOOK_URL = f"{PUBLIC_URL}/{TOKEN}"
+
 bot = Bot(token=TOKEN)
 app_flask = Flask(__name__)
-
-# --- Публичный URL Render
-PUBLIC_URL = "https://oberpat.onrender.com"  # <-- Убедись, что это твой реальный Render URL
-TELEGRAM_WEBHOOK_URL = f"{PUBLIC_URL}/{TOKEN}"
 
 # --- Каталог
 catalog = {
@@ -23,13 +22,7 @@ catalog = {
     ]
 }
 
-# --- Хранилище данных
 carts = {}
-orders = {}
-order_info = {}
-global_order_number = 0
-
-# --- Главное меню
 main_menu = ReplyKeyboardMarkup(
     [
         [KeyboardButton("Каталог игр")],
@@ -37,48 +30,43 @@ main_menu = ReplyKeyboardMarkup(
         [KeyboardButton("Мои заказы")],
         [KeyboardButton("❓ Часто задаваемые вопросы")]
     ],
-    resize_keyboard=True,
-    one_time_keyboard=False
+    resize_keyboard=True
 )
 
-# --- Команда /start
+# --- Обработчики
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎮 Добро пожаловать! Выберите раздел:", reply_markup=main_menu)
+    await update.message.reply_text("Выберите раздел:", reply_markup=main_menu)
 
-# --- Меню
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.message.from_user.id
 
     if text == "Каталог игр":
-        keyboard = [
-            [InlineKeyboardButton(f"{item['name']} — {item['price']}₽", callback_data=f"item_{item['name']}")]
-            for item in catalog["Игры"]
-        ]
+        category = "Игры"
+        keyboard = [[InlineKeyboardButton(f"{item['name']} — {item['price']}р", callback_data=f"item_{item['name']}")] for item in catalog[category]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Выберите игру:", reply_markup=reply_markup)
-
+        await update.message.reply_text(f"Каталог {category}:", reply_markup=reply_markup)
     elif text == "Просмотр корзины":
         cart_items = carts.get(user_id, [])
         if not cart_items:
             await update.message.reply_text("🛒 Ваша корзина пуста.", reply_markup=main_menu)
             return
-
-        total = sum(next((g["price"] for g in catalog["Игры"] if g["name"] == item), 0) for item in cart_items)
-        msg = "🛒 Ваша корзина:\n" + "\n".join(f"- {i}" for i in cart_items) + f"\n\n💰 Итого: {total}₽"
-        keyboard = [
-            [InlineKeyboardButton("❌ Очистить корзину", callback_data="clear_cart")],
-            [InlineKeyboardButton("Оформить заказ", callback_data="checkout")]
-        ]
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
-
-    elif text == "Оформить заказ":
-        await update.message.reply_text("Введите данные для оформления заказа:\n📞 Телефон\n🏠 Адрес")
-
+        text_cart = "🛒 Ваша корзина:\n"
+        total = 0
+        keyboard = []
+        for i in cart_items:
+            item = next((it for it in catalog["Игры"] if it["name"] == i), None)
+            if item:
+                text_cart += f"- {i} — {item['price']}р\n"
+                total += item['price']
+                keyboard.append([InlineKeyboardButton(f"❌ Удалить {i}", callback_data=f"remove_{i}")])
+        keyboard.append([InlineKeyboardButton("Оформить заказ", callback_data="checkout")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        text_cart += f"\n💰 Итого: {total}р"
+        await update.message.reply_text(text_cart, reply_markup=reply_markup)
     else:
-        await update.message.reply_text("Выберите пункт меню ниже 👇", reply_markup=main_menu)
+        await update.message.reply_text("Выберите пункт из меню 👇", reply_markup=main_menu)
 
-# --- Обработка нажатий Inline-кнопок
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -90,58 +78,47 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         item = next((i for i in catalog["Игры"] if i["name"] == item_name), None)
         if item:
             keyboard = [
-                [InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"add_{item_name}")],
-                [InlineKeyboardButton("⬅ Назад к каталогу", callback_data="back_to_catalog")]
+                [InlineKeyboardButton("Назад к каталогу", callback_data="back_to_catalog")],
+                [InlineKeyboardButton("Добавить в корзину", callback_data=f"add_{item_name}")],
+                [InlineKeyboardButton("Просмотр корзины", callback_data="view_cart")],
+                [InlineKeyboardButton("Оформить заказ", callback_data="checkout")]
             ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             with open(item["photo"], "rb") as f:
                 await query.message.reply_photo(
                     photo=f,
-                    caption=f"🎮 {item['name']}\n\n{item['description']}\n💰 Цена: {item['price']}₽",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    caption=f"🎮 {item['name']} — {item['price']}р\n{item['description']}",
+                    reply_markup=reply_markup
                 )
-
     elif data.startswith("add_"):
         item_name = data.split("_", 1)[1]
         carts.setdefault(user_id, []).append(item_name)
         await query.message.reply_text(f"✅ {item_name} добавлен в корзину!")
 
-    elif data == "back_to_catalog":
-        keyboard = [
-            [InlineKeyboardButton(f"{item['name']} — {item['price']}₽", callback_data=f"item_{item['name']}")]
-            for item in catalog["Игры"]
-        ]
-        await query.message.reply_text("Выберите игру:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-    elif data == "clear_cart":
-        carts[user_id] = []
-        await query.message.reply_text("🧹 Корзина очищена.", reply_markup=main_menu)
-
-    elif data == "checkout":
-        await query.message.reply_text("Введите ваши контактные данные для оформления заказа.")
-
-# --- Создание приложения Telegram
-app_telegram = ApplicationBuilder().token(TOKEN).build()
+# --- Telegram Application
+app_telegram = Application.builder().token(TOKEN).build()
 app_telegram.add_handler(CommandHandler("start", start))
 app_telegram.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
 app_telegram.add_handler(CallbackQueryHandler(button_handler))
 
-# --- Flask route для Telegram Webhook
-@app_flask.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    app_telegram.update_queue.put_nowait(update)
-    return "OK"
-
-# --- Проверка работы сервера
+# --- Flask маршруты
 @app_flask.route("/")
 def index():
-    return "✅ Bot is running on Render!"
+    return "Bot is running!"
 
-# --- Установка webhook
-asyncio.run(bot.set_webhook(TELEGRAM_WEBHOOK_URL))
+@app_flask.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    update_data = request.get_json(force=True)
+    update = Update.de_json(update_data, bot)
+    asyncio.create_task(app_telegram.process_update(update))  # ✅ <-- вот ключевая замена!
+    return "OK", 200
 
-# --- Запуск Flask
+# --- Устанавливаем вебхук при запуске
+async def set_webhook():
+    await bot.set_webhook(TELEGRAM_WEBHOOK_URL)
+asyncio.run(set_webhook())
+
+# --- Запускаем Flask
 if __name__ == "__main__":
-    port_str = os.environ.get("PORT")
-    port = int(port_str) if port_str and port_str.isdigit() else 5000
+    port = int(os.environ.get("PORT", 5000))
     app_flask.run(host="0.0.0.0", port=port)
