@@ -127,11 +127,11 @@ def index():
     return "Bot is running!"
 
 # --- Установка webhook
-bot.set_webhook(TELEGRAM_WEBHOOK_URL)
+import asyncio
+asyncio.run(bot.set_webhook(TELEGRAM_WEBHOOK_URL))
 
 # --- Запуск Flask
 if __name__ == "__main__":
-    print("OS module loaded:", "os" in globals())
-    port = int(os.environ.get("PORT", 5000))
-    print("Port:", port)
-    app.run(host="0.0.0.0", port=port)
+    port_str = os.environ.get("PORT")
+    port = int(port_str) if port_str and port_str.isdigit() else 5000
+    app_flask.run(host="0.0.0.0", port=port)
