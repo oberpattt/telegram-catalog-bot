@@ -272,9 +272,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Запуск
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    print("Бот запущен. Ctrl+C для остановки.")
-    app.run_polling()
+    port = int(os.environ.get("PORT", 5000))
+    # Настройка webhook для Telegram
+    url = f"https://<твое_имя_проекта>.onrender.com/{TOKEN}"
+    bot.set_webhook(url)
+    print(f"Webhook установлен на {url}")
+    app.run(host="0.0.0.0", port=port)
