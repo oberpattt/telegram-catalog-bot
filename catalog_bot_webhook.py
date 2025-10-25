@@ -1,4 +1,5 @@
 import os
+import asyncio
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
@@ -41,7 +42,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Выберите раздел:", reply_markup=main_menu)
 
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global global_order_number
     text = update.message.text
     user_id = update.message.from_user.id
 
@@ -122,15 +122,12 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # Настройка webhook
     await app.bot.set_webhook(url=WEBHOOK_URL)
     print(f"✅ Webhook установлен: {WEBHOOK_URL}")
 
-    # Render передаёт порт через переменную среды PORT
     port_str = os.environ.get("PORT")
     port = int(port_str) if port_str and port_str.isdigit() else 5000
 
-    # Запуск встроенного сервера (без Flask)
     await app.run_webhook(
         listen="0.0.0.0",
         port=port,
@@ -138,6 +135,13 @@ async def main():
         webhook_url=WEBHOOK_URL
     )
 
+# --- Запуск (без asyncio.run)
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            task = loop.create_task(main())
+        else:
+            loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        print("🛑 Остановка вручную")
