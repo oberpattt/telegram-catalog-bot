@@ -120,5 +120,10 @@ asyncio.run(set_webhook())
 
 # --- Запускаем Flask
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app_flask.run(host="0.0.0.0", port=port)
+port_str = os.environ.get("PORT")
+try:
+    port = int(port_str)
+except (TypeError, ValueError):
+    port = 5000  # значение по умолчанию
+app_flask.run(host="0.0.0.0", port=port)
+
