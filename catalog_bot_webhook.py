@@ -3,6 +3,9 @@ from flask import Flask, request
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 import asyncio
+import nest_asyncio
+
+nest_asyncio.apply()  # нужно, чтобы asyncio.run() работал внутри Flask
 
 # --- Конфигурация
 TOKEN = "8272770257:AAHCYt5GKjdaweaTI3frG-tWzItJK8OGSIs"
@@ -50,7 +53,6 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "Каталог игр":
         category = "Игры"
-        # Используем индекс в callback_data вместо полного имени
         keyboard = [
             [InlineKeyboardButton(f"{item['name']} — {item['price']}р", callback_data=f"item_{idx}")]
             for idx, item in enumerate(catalog[category])
@@ -138,7 +140,7 @@ app_telegram.add_handler(CallbackQueryHandler(button_handler))
 @app_flask.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
-    app_telegram.update_queue.put_nowait(update)
+    asyncio.create_task(app_telegram.update_queue.put(update))  # очередь теперь реально обрабатывается
     return "OK"
 
 @app_flask.route("/")
@@ -148,8 +150,17 @@ def index():
 # --- Установка webhook
 asyncio.run(bot.set_webhook(TELEGRAM_WEBHOOK_URL))
 
+# --- Запуск Telegram Application
+async def start_telegram_app():
+    await app_telegram.initialize()
+    await app_telegram.start()
+    await app_telegram.updater.start_polling()
+    await app_telegram.updater.idle()
+
 # --- Запуск Flask
 if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_telegram_app())  # запускаем обработку очереди
     port_str = os.environ.get("PORT")
     port = int(port_str) if port_str and port_str.isdigit() else 5000
     app_flask.run(host="0.0.0.0", port=port)
