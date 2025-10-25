@@ -140,27 +140,16 @@ app_telegram.add_handler(CallbackQueryHandler(button_handler))
 @app_flask.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
-    asyncio.create_task(app_telegram.update_queue.put(update))  # очередь теперь реально обрабатывается
+    # помещаем update в очередь
+    app_telegram.update_queue.put_nowait(update)
     return "OK"
-
-@app_flask.route("/")
-def index():
-    return "Bot is running!"
 
 # --- Установка webhook
 asyncio.run(bot.set_webhook(TELEGRAM_WEBHOOK_URL))
 
-# --- Запуск Telegram Application
-async def start_telegram_app():
-    await app_telegram.initialize()
-    await app_telegram.start()
-    await app_telegram.updater.start_polling()
-    await app_telegram.updater.idle()
-
 # --- Запуск Flask
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(start_telegram_app())  # запускаем обработку очереди
+    # Обработка очереди запускается автоматически при добавлении обработчиков
     port_str = os.environ.get("PORT")
     port = int(port_str) if port_str and port_str.isdigit() else 5000
     app_flask.run(host="0.0.0.0", port=port)
