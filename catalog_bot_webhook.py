@@ -3,6 +3,7 @@ from flask import Flask, request
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 import asyncio
+import requests
 import nest_asyncio
 
 nest_asyncio.apply()  # нужно, чтобы asyncio.run() работал внутри Flask
@@ -140,16 +141,19 @@ app_telegram.add_handler(CallbackQueryHandler(button_handler))
 @app_flask.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
-    # помещаем update в очередь
     app_telegram.update_queue.put_nowait(update)
     return "OK"
 
-# --- Установка webhook
-asyncio.run(bot.set_webhook(TELEGRAM_WEBHOOK_URL))
+@app_flask.route("/")
+def index():
+    return "Bot is running!"
+
+# --- Автообновление webhook
+requests.post(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
+requests.post(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={TELEGRAM_WEBHOOK_URL}")
 
 # --- Запуск Flask
 if __name__ == "__main__":
-    # Обработка очереди запускается автоматически при добавлении обработчиков
     port_str = os.environ.get("PORT")
     port = int(port_str) if port_str and port_str.isdigit() else 5000
     app_flask.run(host="0.0.0.0", port=port)
