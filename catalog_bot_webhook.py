@@ -105,11 +105,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Оформить заказ", callback_data="checkout")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        caption = f"🎮 {item['name']} — {item['price']}р\n{item['description']}"
         try:
             with open(item["photo"], "rb") as f:
-                await query.message.reply_photo(photo=f, caption=f"🎮 {item['name']} — {item['price']}р\n{item['description']}", reply_markup=reply_markup)
+                await query.message.reply_photo(photo=f, caption=caption, reply_markup=reply_markup)
         except FileNotFoundError:
-            await query.message.reply_text(f"🎮 {item['name']} — {item['price']}р\n{item['description']}", reply_markup=reply_markup)
+            await query.message.edit_text(text=caption, reply_markup=reply_markup)
 
     elif data.startswith("add_"):
         idx = int(data.split("_")[1])
@@ -118,7 +119,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"✅ {item_name} добавлен в корзину!")
 
     elif data == "back_to_catalog":
-        await handle_menu(update, context)
+        category = "Игры"
+        keyboard = [
+            [InlineKeyboardButton(f"{item['name']} — {item['price']}р", callback_data=f"item_{idx}")]
+            for idx, item in enumerate(catalog[category])
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.edit_text(f"Каталог {category}:", reply_markup=reply_markup)
+
 
 # --- Создание приложения Telegram
 app_telegram = ApplicationBuilder().token(TOKEN).build()
