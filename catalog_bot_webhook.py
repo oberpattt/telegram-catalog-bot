@@ -44,7 +44,69 @@ main_menu = ReplyKeyboardMarkup(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Выберите раздел:", reply_markup=main_menu)
 
-# Твои функции handle_menu и button_handler вставляются без изменений
+async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global global_order_number
+    text = update.message.text
+    user_id = update.message.from_user.id
+
+    if text == "Каталог игр":
+        category = "Игры"
+        keyboard = [[InlineKeyboardButton(f"{item['name']} — {item['price']}р", callback_data=f"item_{item['name']}")] for item in catalog[category]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(f"Каталог {category}:", reply_markup=reply_markup)
+    elif text == "Просмотр корзины":
+        cart_items = carts.get(user_id, [])
+        if not cart_items:
+            await update.message.reply_text("🛒 Ваша корзина пуста.", reply_markup=main_menu)
+            return
+        text_cart = "🛒 Ваша корзина:\n"
+        total = 0
+        keyboard = []
+        for i in cart_items:
+            item = next((it for it in catalog["Игры"] if it["name"] == i), None)
+            if item:
+                text_cart += f"- {i} — {item['price']}р\n"
+                total += item['price']
+                keyboard.append([InlineKeyboardButton(f"❌ Удалить {i}", callback_data=f"remove_{i}")])
+        keyboard.append([InlineKeyboardButton("Оформить заказ", callback_data="checkout")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        text_cart += f"\n💰 Итого: {total}р"
+        await update.message.reply_text(text_cart, reply_markup=reply_markup)
+    elif text == "Оформить заказ":
+        cart_items = carts.get(user_id, [])
+        if not cart_items:
+            await update.message.reply_text("Ваша корзина пуста.", reply_markup=main_menu)
+            return
+        await update.message.reply_text(
+            "Введите данные для оформления заказа в одном сообщении:\nтелефон: <телефон>\nимя: <имя>\nадрес: <адрес>",
+            reply_markup=main_menu
+        )
+    else:
+        await update.message.reply_text("Пожалуйста, выберите раздел из меню ниже 👇", reply_markup=main_menu)
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+
+    if data.startswith("item_"):
+        item_name = data.split("_", 1)[1]
+        item = next((i for i in catalog["Игры"] if i["name"] == item_name), None)
+        if item:
+            keyboard = [
+                [InlineKeyboardButton("Назад к каталогу", callback_data="back_to_catalog")],
+                [InlineKeyboardButton("Добавить в корзину", callback_data=f"add_{item_name}")],
+                [InlineKeyboardButton("Просмотр корзины", callback_data="view_cart")],
+                [InlineKeyboardButton("Оформить заказ", callback_data="checkout")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            with open(item["photo"], "rb") as f:
+                await query.message.reply_photo(photo=f, caption=f"🎮 {item['name']} — {item['price']}р\n{item['description']}", reply_markup=reply_markup)
+    elif data.startswith("add_"):
+        item_name = data.split("_", 1)[1]
+        carts.setdefault(user_id, []).append(item_name)
+        await query.message.reply_text(f"✅ {item_name} добавлен в корзину!")
 
 # --- Создание приложения Telegram
 app_telegram = ApplicationBuilder().token(TOKEN).build()
