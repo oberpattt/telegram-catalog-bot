@@ -148,7 +148,34 @@ async def set_webhook():
     print(f"✅ Webhook установлен: {WEBHOOK_URL}")
 
 
+# --- Запуск через встроенный webhook-сервер
+async def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
+    app.add_handler(CallbackQueryHandler(button_handler))
+
+    await app.bot.set_webhook(url=WEBHOOK_URL)
+    print(f"✅ Webhook установлен: {WEBHOOK_URL}")
+
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=WEBHOOK_PATH,
+        webhook_url=WEBHOOK_URL
+    )
+
+# --- Запуск
 if __name__ == "__main__":
-    asyncio.run(set_webhook())
-    port = int(os.environ.get("PORT", 5000))
-    app_flask.run(host="0.0.0.0", port=port)
+    import asyncio
+    import os
+
+    port_env = os.environ.get("PORT")
+    try:
+        port = int(port_env) if port_env else 5000
+    except ValueError:
+        port = 5000
+
+    asyncio.run(main())
+
