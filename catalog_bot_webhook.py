@@ -1,13 +1,24 @@
 import os
 import asyncio
+from flask import Flask, request
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters
+)
 
 # --- Конфигурация
 TOKEN = "8272770257:AAHCYt5GKjdaweaTI3frG-tWzItJK8OGSIs"
-PUBLIC_URL = "https://oberpat.onrender.com"  # Твой Render-домен
+PUBLIC_URL = "https://oberpat.onrender.com"  # твой Render-домен
 WEBHOOK_PATH = f"/{TOKEN}"
 WEBHOOK_URL = f"{PUBLIC_URL}{WEBHOOK_PATH}"
+
+bot = Bot(token=TOKEN)
+app_flask = Flask(__name__)
 
 # --- Каталог
 catalog = {
@@ -112,31 +123,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"✅ {item_name} добавлен в корзину!")
 
     elif data == "back_to_catalog":
-        await handle_menu(update, context)
+        await query.message.reply_text("Выберите игру:", reply_markup=main_menu)
 
-# --- Запуск через встроенный webhook-сервер
-async def main():
-    app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
-    app.add_handler(CallbackQueryHandler(button_handler))
+# --- Flask-интеграция Telegram Webhook
+app_telegram = Application.builder().token(TOKEN).build()
+app_telegram.add_handler(CommandHandler("start", start))
+app_telegram.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
+app_telegram.add_handler(CallbackQueryHandler(button_handler))
 
-    await app.bot.set_webhook(url=WEBHOOK_URL)
+@app_flask.route(f"/{TOKEN}", methods=["POST"])
+async def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    await app_telegram.process_update(update)
+    return "ok", 200
+
+@app_flask.route("/", methods=["GET"])
+def index():
+    return "✅ Bot is running!", 200
+
+
+async def set_webhook():
+    await bot.set_webhook(WEBHOOK_URL)
     print(f"✅ Webhook установлен: {WEBHOOK_URL}")
 
-    port_str = os.environ.get("PORT")
-    port = int(port_str) if port_str and port_str.isdigit() else 5000
 
-    await app.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=WEBHOOK_PATH,
-        webhook_url=WEBHOOK_URL
-    )
-
-# --- Запуск (без asyncio.run)
 if __name__ == "__main__":
-    import asyncio
-    asyncio.get_event_loop().create_task(main())
-    asyncio.get_event_loop().run_forever()
+    asyncio.run(set_webhook())
+    port = int(os.environ.get("PORT", 5000))
+    app_flask.run(host="0.0.0.0", port=port)
