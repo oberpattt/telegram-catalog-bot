@@ -1,13 +1,12 @@
 import os
 from flask import Flask, request
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # --- Конфигурация
 TOKEN = "8272770257:AAHCYt5GKjdaweaTI3frG-tWzItJK8OGSIs"
 bot = Bot(token=TOKEN)
-app = Flask(__name__)
-dispatcher = Dispatcher(bot, None, workers=0)
+app_flask = Flask(__name__)
 
 # --- Публичный URL Render
 PUBLIC_URL = "https://telegram-catalog-bot.onrender.com"
@@ -45,23 +44,23 @@ main_menu = ReplyKeyboardMarkup(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Выберите раздел:", reply_markup=main_menu)
 
-# (Здесь вставь всю функцию handle_menu и button_handler без изменений)
-# Например: handle_menu и button_handler из твоего предыдущего кода
+# Твои функции handle_menu и button_handler вставляются без изменений
 
-# --- Регистрация хэндлеров
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
-dispatcher.add_handler(CallbackQueryHandler(button_handler))
+# --- Создание приложения Telegram
+app_telegram = ApplicationBuilder().token(TOKEN).build()
+app_telegram.add_handler(CommandHandler("start", start))
+app_telegram.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
+app_telegram.add_handler(CallbackQueryHandler(button_handler))
 
 # --- Flask route для Telegram Webhook
-@app.route(f"/{TOKEN}", methods=["POST"])
+@app_flask.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
+    app_telegram.update_queue.put_nowait(update)
     return "OK"
 
 # --- Проверка работы сервера
-@app.route("/")
+@app_flask.route("/")
 def index():
     return "Bot is running!"
 
@@ -74,4 +73,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print("Port:", port)
     app.run(host="0.0.0.0", port=port)
-
